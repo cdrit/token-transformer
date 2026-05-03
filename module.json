@@ -19,3 +19,5 @@
   "manifest": "#{MANIFEST}#",
   "download": "#{DOWNLOAD}#"
 }
+]
+}
