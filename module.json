@@ -12,7 +12,7 @@
       "name": "Citard"
     }
   ],
-  "scripts": ["scripts/main.js"],
+  "scripts": ["scripts/module.js"],
   "esmodules": [],
   "styles": [],
   "url": "#{URL}#",
