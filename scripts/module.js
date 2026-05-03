@@ -515,26 +515,10 @@ function injectTokenHudButtons(hud, element) {
 
 async function toggleTokenForm(tokenDoc) {
   try {
-    const controlledDocs = canvas.tokens.controlled
-      .map(token => token.document)
-      .filter(doc => doc && canUpdateDocument(doc) && tokenHasSwapAvailable(doc));
+    const state = getSwapState(tokenDoc);
 
-    const targets = controlledDocs.length > 1
-      ? controlledDocs
-      : [tokenDoc];
-
-    const clickedState = getSwapState(tokenDoc);
-    const shouldRestore = clickedState?.isSwapped === true;
-
-    for (const targetDoc of targets) {
-      const state = getSwapState(targetDoc);
-
-      if (shouldRestore) {
-        if (state?.isSwapped) await restoreOriginalForm(targetDoc, state);
-      } else {
-        if (!state?.isSwapped) await swapToReplacementForm(targetDoc);
-      }
-    }
+    if (state?.isSwapped) await restoreOriginalForm(tokenDoc, state);
+    else await swapToReplacementForm(tokenDoc);
 
     if (game.user.isGM) await cleanCache();
 
@@ -544,6 +528,7 @@ async function toggleTokenForm(tokenDoc) {
     ui.notifications.error(error.message ?? "Token transform failed.");
   }
 }
+
 /* ------------------------------------------------------------------------- */
 /* SWAPPING                                                                   */
 /* ------------------------------------------------------------------------- */
