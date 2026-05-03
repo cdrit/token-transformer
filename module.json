@@ -17,5 +17,15 @@
   "styles": [],
   "url": "#{URL}#",
   "manifest": "#{MANIFEST}#",
-  "download": "#{DOWNLOAD}#"
+  "download": "#{DOWNLOAD}#",
+ "relationships": {
+    "systems": [
+      {
+        "id": "acks",
+        "type": "system",
+        "compatibility": {}
+      }
+    ]
+  },
+  "flags": {}
 }
