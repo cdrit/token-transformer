@@ -1,8 +1,12 @@
+Replace the whole `module.js` with this version.
+
+```js
 const MODULE_ID = "token-transformer";
 
 const FLAGS = {
   REPLACEMENT_UUID: "replacementActorUuid",
-  SWAP_STATE: "swapState"
+  SWAP_STATE: "swapState",
+  CACHE_SOURCE_UUID: "cacheSourceUuid"
 };
 
 const SETTINGS_MENU = "transferSettings";
@@ -20,6 +24,7 @@ const SETTINGS = {
 const HP_MAX_PATH = "system.hp.max";
 const HP_VALUE_PATH = "system.hp.value";
 const ACKS_MINIMUM_HP = -99;
+const CACHE_FOLDER_NAME = "Token Transformer Cache";
 
 const TOKEN_APPEARANCE_FIELDS = [
   "name", "texture", "width", "height", "scale", "mirrorX", "mirrorY",
@@ -27,58 +32,6 @@ const TOKEN_APPEARANCE_FIELDS = [
   "sight", "detectionModes", "light", "occludable", "ring",
   "lockRotation", "rotation"
 ];
-
-const BaseFormApplication =
-  globalThis.FormApplication ??
-  foundry?.appv1?.api?.FormApplication;
-
-class TokenTransformerSettingsMenu extends BaseFormApplication {
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      id: "token-transformer-settings",
-      title: "Token Transformer Settings",
-      template: "",
-      width: 460,
-      height: "auto",
-      closeOnSubmit: true
-    });
-  }
-
-  async _renderInner() {
-    const settings = getTransferSettings();
-
-    const html = `
-      <form class="token-transformer-settings-form">
-        <p class="notes">
-          Choose which parts of the UUID Actor are copied into the transformed token.
-          ACKS HP damage is always carried.
-        </p>
-
-        ${settingCheckbox(SETTINGS.TRANSFER_NAME_IMAGE, "Transfer name and portrait image", settings.transferNameImage)}
-        ${settingCheckbox(SETTINGS.TRANSFER_SYSTEM, "Transfer full ACKS system data", settings.transferSystem)}
-        ${settingCheckbox(SETTINGS.TRANSFER_ITEMS, "Transfer all items", settings.transferItems)}
-        ${settingCheckbox(SETTINGS.TRANSFER_ABILITY_ITEMS, "Transfer ability items", settings.transferAbilityItems)}
-        ${settingCheckbox(SETTINGS.TRANSFER_EFFECTS, "Transfer active effects from UUID Actor", settings.transferEffects)}
-        ${settingCheckbox(SETTINGS.TRANSFER_TOKEN_APPEARANCE, "Transfer prototype token appearance", settings.transferTokenAppearance)}
-        ${settingCheckbox(SETTINGS.CARRY_ACTIVE_EFFECTS, "Carry current token active effects across forms", settings.carryActiveEffects)}
-
-        <footer class="sheet-footer flexrow">
-          <button type="submit">
-            <i class="fa-solid fa-save"></i> Save
-          </button>
-        </footer>
-      </form>
-    `;
-
-    return $(html);
-  }
-
-  async _updateObject(_event, formData) {
-    for (const key of Object.values(SETTINGS)) {
-      await game.settings.set(MODULE_ID, key, Boolean(formData[key]));
-    }
-  }
-}
 
 Hooks.once("init", () => {
   registerSettings();
@@ -92,6 +45,26 @@ Hooks.on("renderACKSActorSheetV2", injectActorSheetButton);
 Hooks.on("renderACKSCharacterSheetV2", injectActorSheetButton);
 Hooks.on("renderACKSMonsterSheetV2", injectActorSheetButton);
 Hooks.on("renderTokenHUD", injectTokenHudButton);
+
+/* SETTINGS */
+
+class TokenTransformerSettingsMenu extends FormApplication {
+  static get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      id: "token-transformer-settings-shim",
+      title: "Token Transformer Settings",
+      template: "templates/blank.hbs",
+      width: 1,
+      height: 1,
+      closeOnSubmit: true
+    });
+  }
+
+  async render(force, options) {
+    await openSettingsDialogV2();
+    return this;
+  }
+}
 
 function registerSettings() {
   game.settings.registerMenu(MODULE_ID, SETTINGS_MENU, {
@@ -133,6 +106,55 @@ function getTransferSettings() {
   };
 }
 
+async function openSettingsDialogV2() {
+  const settings = getTransferSettings();
+
+  const content = `
+    <form class="token-transformer-settings-form">
+      <p class="notes">Choose what gets copied from the UUID Actor into the transformed token. ACKS HP damage is always carried.</p>
+      ${settingCheckbox(SETTINGS.TRANSFER_NAME_IMAGE, "Transfer name and portrait image", settings.transferNameImage)}
+      ${settingCheckbox(SETTINGS.TRANSFER_SYSTEM, "Transfer full ACKS system data", settings.transferSystem)}
+      ${settingCheckbox(SETTINGS.TRANSFER_ITEMS, "Transfer all items", settings.transferItems)}
+      ${settingCheckbox(SETTINGS.TRANSFER_ABILITY_ITEMS, "Transfer ability items", settings.transferAbilityItems)}
+      ${settingCheckbox(SETTINGS.TRANSFER_EFFECTS, "Transfer active effects from UUID Actor", settings.transferEffects)}
+      ${settingCheckbox(SETTINGS.TRANSFER_TOKEN_APPEARANCE, "Transfer prototype token appearance", settings.transferTokenAppearance)}
+      ${settingCheckbox(SETTINGS.CARRY_ACTIVE_EFFECTS, "Carry current token active effects across forms", settings.carryActiveEffects)}
+    </form>
+  `;
+
+  const DialogV2 = foundry?.applications?.api?.DialogV2;
+
+  if (DialogV2?.prompt) {
+    return DialogV2.prompt({
+      window: { title: "Token Transformer Settings" },
+      content,
+      modal: true,
+      rejectClose: false,
+      ok: {
+        label: "Save",
+        callback: async (_event, button) => {
+          const form = button.form;
+          for (const key of Object.values(SETTINGS)) {
+            await game.settings.set(MODULE_ID, key, Boolean(form.elements[key]?.checked));
+          }
+        }
+      }
+    });
+  }
+
+  return Dialog.prompt({
+    title: "Token Transformer Settings",
+    content,
+    label: "Save",
+    callback: async html => {
+      const root = getElement(html);
+      for (const key of Object.values(SETTINGS)) {
+        await game.settings.set(MODULE_ID, key, Boolean(root.querySelector(`[name="${key}"]`)?.checked));
+      }
+    }
+  });
+}
+
 function settingCheckbox(name, label, checked) {
   return `
     <div class="form-group">
@@ -142,14 +164,11 @@ function settingCheckbox(name, label, checked) {
   `;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Actor sheet button                                                         */
-/* ------------------------------------------------------------------------- */
+/* ACTOR SHEET BUTTON */
 
 function injectActorSheetButton(app, element) {
   const actor = getSheetActor(app);
-  const worldActor = getPersistentWorldActor(actor);
-  if (!worldActor || !canUpdateDocument(worldActor)) return;
+  if (!isActorDocument(actor)) return;
 
   const root = getElement(element) ?? getElement(app.element);
   if (!root || root.querySelector(".token-transformer-sheet-button")) return;
@@ -163,7 +182,7 @@ function injectActorSheetButton(app, element) {
   button.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
-    configureReplacementActor(worldActor);
+    configureReplacementActor(actor);
   });
 
   const headerControls =
@@ -187,7 +206,10 @@ function injectActorSheetButton(app, element) {
 }
 
 async function configureReplacementActor(actor) {
-  const currentUuid = actor.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID) ?? "";
+  const currentUuid =
+    actor.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID) ??
+    getProperty(actor, `prototypeToken.flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`) ??
+    "";
 
   const uuid = await textInputDialogV2({
     title: "Set Token Transform Actor UUID",
@@ -198,20 +220,31 @@ async function configureReplacementActor(actor) {
 
   if (uuid === null) return;
 
-  if (!uuid) {
-    await actor.unsetFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID);
-    ui.notifications.info(`${actor.name}: transform Actor UUID cleared.`);
-    return;
-  }
+  try {
+    if (!uuid) {
+      await actor.update({
+        [`flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`]: null,
+        [`prototypeToken.flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`]: null
+      });
+      ui.notifications.info(`${actor.name}: transform Actor UUID cleared.`);
+      return;
+    }
 
-  const replacementActor = await resolveActorUuid(uuid);
-  await actor.setFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID, replacementActor.uuid);
-  ui.notifications.info(`${actor.name}: transform Actor set to ${replacementActor.name}.`);
+    const replacementActor = await resolveActorUuid(uuid);
+
+    await actor.update({
+      [`flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`]: replacementActor.uuid,
+      [`prototypeToken.flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`]: replacementActor.uuid
+    });
+
+    ui.notifications.info(`${actor.name}: transform Actor set to ${replacementActor.name}.`);
+  } catch (error) {
+    console.error(`${MODULE_ID} | Failed to save UUID`, error);
+    ui.notifications.error(error.message ?? "Failed to save transform UUID.");
+  }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Token HUD button                                                           */
-/* ------------------------------------------------------------------------- */
+/* TOKEN HUD */
 
 function injectTokenHudButton(hud, element) {
   const tokenDoc = hud.object?.document;
@@ -249,18 +282,16 @@ async function toggleTokenForm(tokenDoc) {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Swap logic                                                                 */
-/* ------------------------------------------------------------------------- */
+/* SWAPPING */
 
 async function swapToReplacementForm(tokenDoc) {
   const originalActor = getTokenWorldBaseActor(tokenDoc);
   if (!originalActor) throw new Error("This token does not have a world Actor base.");
 
-  const replacementUuid = originalActor.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID);
+  const replacementUuid = getReplacementUuidForToken(tokenDoc);
   if (!replacementUuid) throw new Error(`${originalActor.name} does not have a transform Actor UUID set.`);
 
-  const replacementActor = await resolveActorUuid(replacementUuid);
+  const replacementSourceActor = await resolveActorUuid(replacementUuid);
   const settings = getTransferSettings();
 
   const currentDamage = getAcksDamageFromActor(tokenDoc.actor);
@@ -274,23 +305,24 @@ async function swapToReplacementForm(tokenDoc) {
     originalActorLink: isTokenLinked(tokenDoc),
     originalDelta: duplicateData(tokenSource.delta ?? {}),
     originalAppearance: pickTokenAppearance(tokenSource),
-    replacementActorUuid: replacementActor.uuid
+    replacementActorUuid: replacementSourceActor.uuid
   };
 
+  const materializedActor = await materializeTransformActor(replacementSourceActor, settings);
   const replacementAppearance = settings.transferTokenAppearance
-    ? await getActorPrototypeAppearance(replacementActor)
+    ? await getActorPrototypeAppearance(replacementSourceActor)
     : {};
 
   const update = {
-    actorId: isWorldActor(replacementActor) ? replacementActor.id : originalActor.id,
+    actorId: materializedActor.id,
     actorLink: false,
-    delta: buildTransformedActorDelta(replacementActor, currentDamage, carriedEffects, settings),
+    delta: buildTransformDelta(materializedActor, currentDamage, carriedEffects, settings),
     ...replacementAppearance,
     [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: state
   };
 
   await tokenDoc.update(update);
-  ui.notifications.info(`${tokenDoc.name} transformed into ${replacementActor.name}.`);
+  ui.notifications.info(`${tokenDoc.name} transformed into ${replacementSourceActor.name}.`);
 }
 
 async function restoreOriginalForm(tokenDoc, state) {
@@ -328,48 +360,122 @@ async function restoreOriginalForm(tokenDoc, state) {
   ui.notifications.info(`${tokenDoc.name} restored to ${originalActor.name}.`);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Delta builders                                                             */
-/* ------------------------------------------------------------------------- */
+/* MATERIALIZED ACTOR CACHE */
 
-function buildTransformedActorDelta(actor, damage, carriedEffects, settings) {
-  const actorData = actor.toObject();
-  const delta = {
-    type: actorData.type,
-    flags: {}
+async function materializeTransformActor(sourceActor, settings) {
+  const sourceUuid = sourceActor.uuid;
+  const sourceData = sourceActor.toObject();
+  const folder = await getOrCreateCacheFolder();
+
+  let cached = game.actors.find(actor => actor.getFlag(MODULE_ID, FLAGS.CACHE_SOURCE_UUID) === sourceUuid);
+
+  if (cached && cached.type !== sourceActor.type) {
+    await cached.delete();
+    cached = null;
+  }
+
+  const actorData = buildMaterializedActorData(sourceData, sourceUuid, settings, folder?.id);
+
+  if (!cached) {
+    cached = await Actor.implementation.create(actorData);
+    return cached;
+  }
+
+  await cached.update({
+    name: actorData.name,
+    img: actorData.img,
+    system: actorData.system,
+    prototypeToken: actorData.prototypeToken,
+    flags: actorData.flags
+  });
+
+  await replaceEmbeddedCollection(cached, "Item", actorData.items ?? []);
+  await replaceEmbeddedCollection(cached, "ActiveEffect", actorData.effects ?? []);
+
+  return cached;
+}
+
+function buildMaterializedActorData(sourceData, sourceUuid, settings, folderId) {
+  const data = {
+    name: settings.transferNameImage ? sourceData.name : `Transformed ${sourceData.name}`,
+    type: sourceData.type,
+    img: settings.transferNameImage ? sourceData.img : sourceData.img,
+    system: settings.transferSystem ? duplicateData(sourceData.system ?? {}) : {},
+    prototypeToken: duplicateData(sourceData.prototypeToken ?? {}),
+    items: selectSourceItems(sourceData.items ?? [], settings),
+    effects: settings.transferEffects ? duplicateData(sourceData.effects ?? []) : [],
+    flags: duplicateData(sourceData.flags ?? {})
   };
 
-  if (settings.transferNameImage) {
-    delta.name = actorData.name;
-    delta.img = actorData.img;
+  delete data._id;
+  delete data.ownership;
+  delete data.sort;
+
+  if (folderId) data.folder = folderId;
+
+  data.flags[MODULE_ID] ??= {};
+  data.flags[MODULE_ID][FLAGS.CACHE_SOURCE_UUID] = sourceUuid;
+  delete data.flags[MODULE_ID][FLAGS.REPLACEMENT_UUID];
+
+  if (data.prototypeToken) {
+    data.prototypeToken.actorLink = false;
+    data.prototypeToken.flags ??= {};
+    data.prototypeToken.flags[MODULE_ID] ??= {};
+    delete data.prototypeToken.flags[MODULE_ID][FLAGS.REPLACEMENT_UUID];
   }
 
-  if (settings.transferSystem) {
-    delta.system = duplicateData(actorData.system ?? {});
-  } else {
-    delta.system = {};
-  }
+  return data;
+}
 
-  if (settings.transferItems) {
-    delta.items = duplicateData(actorData.items ?? []);
-  } else if (settings.transferAbilityItems) {
-    delta.items = duplicateData((actorData.items ?? []).filter(item => item.type === "ability"));
-  } else {
-    delta.items = [];
-  }
+function selectSourceItems(items, settings) {
+  if (settings.transferItems) return duplicateData(items);
+  if (settings.transferAbilityItems) return duplicateData(items.filter(item => item.type === "ability"));
+  return [];
+}
 
-  if (settings.transferEffects) {
-    delta.effects = mergeEffectData(actorData.effects ?? [], carriedEffects);
-  } else {
-    delta.effects = duplicateData(carriedEffects ?? []);
-  }
+async function getOrCreateCacheFolder() {
+  let folder = game.folders.find(f => f.type === "Actor" && f.name === CACHE_FOLDER_NAME);
+  if (folder) return folder;
 
-  if (actorData.flags && Object.keys(actorData.flags).length) {
-    delta.flags = duplicateData(actorData.flags);
-    if (delta.flags?.[MODULE_ID]) delete delta.flags[MODULE_ID];
+  return Folder.create({
+    name: CACHE_FOLDER_NAME,
+    type: "Actor",
+    sorting: "a"
+  });
+}
+
+async function replaceEmbeddedCollection(parent, embeddedName, documents) {
+  const existingIds = Array.from(parent.getEmbeddedCollection(embeddedName) ?? []).map(document => document.id);
+  if (existingIds.length) await parent.deleteEmbeddedDocuments(embeddedName, existingIds);
+
+  if (documents?.length) {
+    const cleanDocs = duplicateData(documents).map(document => {
+      delete document._id;
+      return document;
+    });
+
+    await parent.createEmbeddedDocuments(embeddedName, cleanDocs);
   }
+}
+
+/* DELTAS */
+
+function buildTransformDelta(actor, damage, carriedEffects, settings) {
+  const delta = {
+    type: actor.type,
+    system: {},
+    effects: []
+  };
 
   applyAcksDamageToData(delta, actor, damage);
+
+  if (settings.carryActiveEffects && carriedEffects.length) {
+    delta.effects = duplicateData(carriedEffects).map(effect => {
+      delete effect._id;
+      return effect;
+    });
+  }
+
   return scrubActorDelta(delta);
 }
 
@@ -393,9 +499,7 @@ function scrubActorDelta(delta) {
   return clean;
 }
 
-/* ------------------------------------------------------------------------- */
-/* ACKS HP and effects                                                        */
-/* ------------------------------------------------------------------------- */
+/* ACKS HP AND EFFECTS */
 
 function getAcksDamageFromActor(actor) {
   if (!actor) return null;
@@ -433,13 +537,6 @@ function getCarriedEffectData(actor) {
   return Array.from(actor.effects).map(effect => scrubEffectData(effect.toObject()));
 }
 
-function mergeEffectData(destinationEffects, carriedEffects) {
-  return [
-    ...duplicateData(destinationEffects ?? []),
-    ...duplicateData(carriedEffects ?? [])
-  ];
-}
-
 function scrubEffectData(effectData) {
   const clean = duplicateData(effectData ?? {});
   delete clean.parent;
@@ -448,22 +545,10 @@ function scrubEffectData(effectData) {
 }
 
 async function replaceActorEffects(actor, effects) {
-  const existingIds = Array.from(actor.effects ?? []).map(effect => effect.id);
-  if (existingIds.length) await actor.deleteEmbeddedDocuments("ActiveEffect", existingIds);
-
-  if (effects?.length) {
-    const newEffects = effects.map(effect => {
-      const clean = scrubEffectData(effect);
-      delete clean._id;
-      return clean;
-    });
-    await actor.createEmbeddedDocuments("ActiveEffect", newEffects);
-  }
+  await replaceEmbeddedCollection(actor, "ActiveEffect", effects ?? []);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Token appearance                                                           */
-/* ------------------------------------------------------------------------- */
+/* TOKEN APPEARANCE */
 
 async function getActorPrototypeAppearance(actor) {
   const tokenDoc = await actor.getTokenDocument();
@@ -478,15 +563,24 @@ function pickTokenAppearance(source) {
   return appearance;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Actor/token helpers                                                        */
-/* ------------------------------------------------------------------------- */
+/* ACTOR / TOKEN HELPERS */
 
 function tokenHasSwapAvailable(tokenDoc) {
   const state = getSwapState(tokenDoc);
   if (state?.isSwapped && state?.originalActorUuid) return true;
-  const baseActor = getTokenWorldBaseActor(tokenDoc);
-  return Boolean(baseActor?.getFlag?.(MODULE_ID, FLAGS.REPLACEMENT_UUID));
+  return Boolean(getReplacementUuidForToken(tokenDoc));
+}
+
+function getReplacementUuidForToken(tokenDoc) {
+  return (
+    tokenDoc.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID) ??
+    getProperty(tokenDoc, `flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`) ??
+    tokenDoc.actor?.getFlag?.(MODULE_ID, FLAGS.REPLACEMENT_UUID) ??
+    getProperty(tokenDoc.actor, `prototypeToken.flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`) ??
+    getProperty(getTokenWorldBaseActor(tokenDoc), `prototypeToken.flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`) ??
+    getTokenWorldBaseActor(tokenDoc)?.getFlag?.(MODULE_ID, FLAGS.REPLACEMENT_UUID) ??
+    null
+  );
 }
 
 function getSwapState(tokenDoc) {
@@ -495,7 +589,6 @@ function getSwapState(tokenDoc) {
 
 function getTokenWorldBaseActor(tokenDoc) {
   if (!tokenDoc) return null;
-
   if (tokenDoc.actorId && game.actors?.get(tokenDoc.actorId)) return game.actors.get(tokenDoc.actorId);
 
   const actor = tokenDoc.actor;
@@ -511,16 +604,6 @@ function getSheetActor(app) {
   const doc = app?.document ?? app?.actor ?? app?.object;
   if (isActorDocument(doc)) return doc;
   if (isActorDocument(app?.object?.actor)) return app.object.actor;
-  return null;
-}
-
-function getPersistentWorldActor(actor) {
-  if (!isActorDocument(actor)) return null;
-  if (isWorldActor(actor)) return actor;
-
-  const baseActor = actor?.baseActor ?? actor?.token?.baseActor ?? actor?.token?.actor?.baseActor;
-  if (isWorldActor(baseActor)) return baseActor;
-
   return null;
 }
 
@@ -558,24 +641,24 @@ function canUpdateDocument(document) {
   return Boolean(document.isOwner);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Dialog / UI / data helpers                                                 */
-/* ------------------------------------------------------------------------- */
+/* DIALOGS / UI */
 
 async function textInputDialogV2({ title, label, value = "", placeholder = "" }) {
   const content = `
-    <div class="form-group stacked">
-      <label>${escapeHtml(label)}</label>
-      <input
-        type="text"
-        name="uuid"
-        value="${escapeHtml(value)}"
-        placeholder="${escapeHtml(placeholder)}"
-        style="width: 100%;"
-        autofocus
-      />
-      <p class="notes">Use a world Actor UUID or compendium Actor UUID. Leave blank and Save to clear.</p>
-    </div>
+    <form>
+      <div class="form-group stacked">
+        <label>${escapeHtml(label)}</label>
+        <input
+          type="text"
+          name="uuid"
+          value="${escapeHtml(value)}"
+          placeholder="${escapeHtml(placeholder)}"
+          style="width: 100%;"
+          autofocus
+        />
+        <p class="notes">Use a world Actor UUID or compendium Actor UUID. Leave blank and Save to clear.</p>
+      </div>
+    </form>
   `;
 
   const DialogV2 = foundry?.applications?.api?.DialogV2;
@@ -595,7 +678,7 @@ async function textInputDialogV2({ title, label, value = "", placeholder = "" })
 
   return Dialog.prompt({
     title,
-    content: `<form>${content}</form>`,
+    content,
     label: "Save",
     rejectClose: false,
     callback: html => {
@@ -659,6 +742,8 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
+/* DATA HELPERS */
+
 function getElement(value) {
   if (!value) return null;
   if (value instanceof HTMLElement) return value;
@@ -706,3 +791,4 @@ function escapeHtml(value) {
 function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
+```
