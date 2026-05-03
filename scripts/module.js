@@ -1,6 +1,3 @@
-Replace the whole `module.js` with this version.
-
-```js
 const MODULE_ID = "token-transformer";
 
 const FLAGS = {
@@ -791,4 +788,3 @@ function escapeHtml(value) {
 function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
-```
