@@ -11,15 +11,23 @@ Hooks.once("ready", () => {
   ui.notifications.info("Token Transformer module loaded successfully!", { type: "info" });
 });
 
-Hooks.on("getActorSheetHeaderButtons", (app, buttons) => {
-  if (buttons.some((b) => b.class === "token-transformer-btn")) return;
+Hooks.on("renderActorSheet", (app, html) => {
+  if (html.find(".token-transformer-btn").length > 0) return;
 
-  buttons.unshift({
-    class: "token-transformer-btn",
-    icon: "fas fa-exchange-alt",
-    label: "Transform UUID",
-    onclick: () => openUuidDialog(app.actor)
+  const button = $(`
+    <a class="token-transformer-btn" style="margin-left: 8px; color: #ffaa00; font-weight: bold;">
+      <i class="fas fa-exchange-alt"></i> Transform UUID
+    </a>
+  `);
+
+  button.on("click", (ev) => {
+    ev.preventDefault();
+    openUuidDialog(app.actor);
   });
+
+  html.find(".window-header").append(button);
+  html.find("header").append(button);
+  html.find(".window-title").after(button);
 });
 
 Hooks.on("getTokenContextOptions", (html, options) => {
