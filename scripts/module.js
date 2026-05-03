@@ -1,49 +1,9 @@
-/*
- * module.js
- *
- * Foundry VTT v13/v14
- * ACKS II Core compatible actor/token form swapper.
- *
- * Target system:
- *   https://github.com/AutarchLLC/foundryvtt-acks-core
- *
- * Behaviour:
- * - Adds an actor sheet header/window button.
- * - Button opens a UUID text input.
- * - Stores the replacement Actor UUID on the original Actor.
- * - Adds a Token HUD/context button when a token can be swapped.
- * - Swaps the token into the replacement Actor form.
- * - Supports world Actor UUIDs and compendium Actor UUIDs.
- * - Transfers ACKS damage as:
- *
- *      damage = system.hp.max - system.hp.value
- *
- * - Applies damage to the new form as:
- *
- *      new system.hp.value = new system.hp.max - damage
- *
- * - Preserves ACKS negative HP down to -99, matching ACKS actor damage logic.
- * - Transfers active effects both ways.
- */
-
 const MODULE_ID = "token-transformer";
-
-const ACKS_SYSTEM_ID = "acks";
 
 const FLAGS = {
   REPLACEMENT_UUID: "replacementActorUuid",
   SWAP_STATE: "swapState",
   FORM_BASE_EFFECT: "formBaseEffect"
-};
-
-const ACTIONS = {
-  CONFIGURE_REPLACEMENT: `${MODULE_ID}.configureReplacement`,
-  TOGGLE_TOKEN_FORM: `${MODULE_ID}.toggleTokenForm`
-};
-
-const CSS = {
-  SHEET_BUTTON: `${MODULE_ID}-sheet-button`,
-  HUD_BUTTON: `${MODULE_ID}-hud-button`
 };
 
 const HP_MAX_PATH = "system.hp.max";
@@ -73,111 +33,69 @@ const TOKEN_APPEARANCE_FIELDS = [
   "rotation"
 ];
 
-/* ------------------------------------------------------------------------- */
-/* Init                                                                      */
-/* ------------------------------------------------------------------------- */
-
 Hooks.once("init", () => {
-  injectHudStyles();
-  patchApplicationV2ActionHandler();
+  injectStyles();
 });
 
-Hooks.once("ready", () => {
-  if (game.system?.id !== ACKS_SYSTEM_ID) {
-    console.warn(
-      `${MODULE_ID} | This module was written for ACKS Core. Current system is "${game.system?.id}".`
-    );
-  }
-});
+Hooks.on("renderApplicationV2", injectActorSheetButton);
+Hooks.on("renderActorSheet", injectActorSheetButton);
+Hooks.on("renderActorSheetV2", injectActorSheetButton);
+Hooks.on("renderACKSActorSheetV2", injectActorSheetButton);
+Hooks.on("renderACKSCharacterSheetV2", injectActorSheetButton);
+Hooks.on("renderACKSMonsterSheetV2", injectActorSheetButton);
+
+Hooks.on("renderTokenHUD", injectTokenHudButton);
 
 /* ------------------------------------------------------------------------- */
-/* Actor sheet header/window button                                           */
+/* Actor sheet button                                                         */
 /* ------------------------------------------------------------------------- */
 
-Hooks.on("getApplicationV1HeaderButtons", addV1ActorSheetButton);
-Hooks.on("getActorSheetHeaderButtons", addV1ActorSheetButton);
-Hooks.on("getApplicationHeaderButtons", addV1ActorSheetButton);
-
-Hooks.on("getHeaderControlsApplicationV2", addV2ActorSheetControl);
-Hooks.on("getHeaderControlsActorSheetV2", addV2ActorSheetControl);
-
-function addV1ActorSheetButton(app, buttons) {
+function injectActorSheetButton(app, element) {
   const actor = getSheetActor(app);
   const worldActor = getPersistentWorldActor(actor);
 
   if (!worldActor || !canUpdateDocument(worldActor)) return;
-  if (buttons.some(button => button.class === CSS.SHEET_BUTTON)) return;
 
-  buttons.unshift({
-    label: "Token Form",
-    class: CSS.SHEET_BUTTON,
-    icon: "fa-solid fa-people-arrows",
-    onclick: event => {
-      event.preventDefault();
-      event.stopPropagation();
-      configureReplacementActor(app);
-    }
+  const root = getElement(element) ?? getElement(app.element);
+  if (!root) return;
+
+  if (root.querySelector(".token-transformer-sheet-button")) return;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "token-transformer-sheet-button";
+  button.title = "Set token transform Actor UUID";
+  button.innerHTML = `<i class="fa-solid fa-people-arrows"></i> <span>Transform</span>`;
+
+  button.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    configureReplacementActor(worldActor);
   });
-}
 
-function addV2ActorSheetControl(app, controls) {
-  const actor = getSheetActor(app);
-  const worldActor = getPersistentWorldActor(actor);
+  const headerControls =
+    root.querySelector(".window-header .window-controls") ??
+    root.querySelector(".window-header .header-actions") ??
+    root.querySelector(".window-header");
 
-  if (!worldActor || !canUpdateDocument(worldActor)) return;
-  if (controls.some(control => control.action === ACTIONS.CONFIGURE_REPLACEMENT)) return;
-
-  controls.unshift({
-    action: ACTIONS.CONFIGURE_REPLACEMENT,
-    icon: "fa-solid fa-people-arrows",
-    label: "Token Form",
-    ownership: "OWNER",
-    visible: true
-  });
-}
-
-function patchApplicationV2ActionHandler() {
-  const ApplicationV2 = foundry?.applications?.api?.ApplicationV2;
-  if (!ApplicationV2?.prototype?._onClickAction) return;
-  if (ApplicationV2.prototype[`_${MODULE_ID}Patched`]) return;
-
-  const original = ApplicationV2.prototype._onClickAction;
-
-  ApplicationV2.prototype._onClickAction = function patchedTokenFormAction(event, target) {
-    const action =
-      target?.dataset?.action ??
-      event?.target?.closest?.("[data-action]")?.dataset?.action;
-
-    if (action === ACTIONS.CONFIGURE_REPLACEMENT && getSheetActor(this)) {
-      event.preventDefault();
-      event.stopPropagation();
-      configureReplacementActor(this);
-      return;
-    }
-
-    return original.call(this, event, target);
-  };
-
-  ApplicationV2.prototype[`_${MODULE_ID}Patched`] = true;
-}
-
-async function configureReplacementActor(app) {
-  const actor = getPersistentWorldActor(getSheetActor(app));
-
-  if (!actor) {
-    ui.notifications.warn("No editable world Actor found for this sheet.");
+  if (headerControls) {
+    headerControls.appendChild(button);
     return;
   }
 
-  if (!canUpdateDocument(actor)) {
-    ui.notifications.warn("You do not have permission to update this Actor.");
-    return;
-  }
+  const sheetHeader =
+    root.querySelector(".sheet-header") ??
+    root.querySelector("header") ??
+    root;
 
+  sheetHeader.appendChild(button);
+}
+
+async function configureReplacementActor(actor) {
   const currentUuid = actor.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID) ?? "";
 
   const uuid = await textInputDialog({
-    title: "Set Token Form Actor UUID",
+    title: "Set Token Transform Actor UUID",
     label: "Replacement Actor UUID",
     value: currentUuid,
     placeholder: "Actor.xxxxx or Compendium.package.pack.Actor.xxxxx"
@@ -187,7 +105,7 @@ async function configureReplacementActor(app) {
 
   if (!uuid) {
     await actor.unsetFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID);
-    ui.notifications.info(`${actor.name}: replacement Actor UUID cleared.`);
+    ui.notifications.info(`${actor.name}: transform Actor UUID cleared.`);
     return;
   }
 
@@ -201,63 +119,49 @@ async function configureReplacementActor(app) {
   }
 
   await actor.setFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID, replacementActor.uuid);
-  ui.notifications.info(`${actor.name}: replacement Actor set to ${replacementActor.name}.`);
+  ui.notifications.info(`${actor.name}: transform Actor set to ${replacementActor.name}.`);
 }
 
 /* ------------------------------------------------------------------------- */
-/* Token HUD/context button                                                   */
+/* Token HUD button                                                           */
 /* ------------------------------------------------------------------------- */
 
-Hooks.on("renderTokenHUD", injectTokenHudButton);
-
-function injectTokenHudButton(hud, htmlOrElement) {
-  const token = getHudToken(hud);
-  const tokenDoc = token?.document ?? hud?.document;
+function injectTokenHudButton(hud, element) {
+  const token = hud.object;
+  const tokenDoc = token?.document;
 
   if (!tokenDoc || !canUpdateDocument(tokenDoc)) return;
   if (!tokenHasSwapAvailable(tokenDoc)) return;
 
-  const inject = () => {
-    const root = getRenderedElement(hud?.element) ?? getRenderedElement(htmlOrElement);
-    if (!root) return;
-    if (root.querySelector(`.${CSS.HUD_BUTTON}`)) return;
+  const root = getElement(element) ?? getElement(hud.element);
+  if (!root) return;
 
-    const state = getSwapState(tokenDoc);
-    const isSwapped = state?.isSwapped === true;
+  if (root.querySelector(".token-transformer-hud-button")) return;
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.classList.add("control-icon", CSS.HUD_BUTTON);
-    button.dataset.action = ACTIONS.TOGGLE_TOKEN_FORM;
-    button.title = isSwapped ? "Restore original ACKS form" : "Swap ACKS token form";
-    button.innerHTML = `<i class="fa-solid fa-people-arrows"></i>`;
+  const state = getSwapState(tokenDoc);
+  const isSwapped = state?.isSwapped === true;
 
-    button.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleTokenForm(tokenDoc);
-    });
+  const button = document.createElement("div");
+  button.className = "control-icon token-transformer-hud-button";
+  button.title = isSwapped ? "Restore original form" : "Transform token";
+  button.innerHTML = `<i class="fa-solid fa-people-arrows"></i>`;
 
-    const parent =
-      root.querySelector(".col.right") ??
-      root.querySelector(".right") ??
-      root.querySelector(".palette") ??
-      root;
+  button.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleTokenForm(tokenDoc);
+  });
 
-    parent.appendChild(button);
-  };
+  const parent =
+    root.querySelector(".col.right") ??
+    root.querySelector(".right") ??
+    root;
 
-  if (typeof requestAnimationFrame === "function") requestAnimationFrame(inject);
-  else setTimeout(inject, 0);
+  parent.appendChild(button);
 }
 
 async function toggleTokenForm(tokenDoc) {
   try {
-    if (!canUpdateDocument(tokenDoc)) {
-      ui.notifications.warn("You do not have permission to update this token.");
-      return;
-    }
-
     const state = getSwapState(tokenDoc);
 
     if (state?.isSwapped) {
@@ -268,8 +172,8 @@ async function toggleTokenForm(tokenDoc) {
 
     canvas?.hud?.token?.clear?.();
   } catch (error) {
-    console.error(`${MODULE_ID} | Token form toggle failed`, error);
-    ui.notifications.error(error.message ?? "Token form toggle failed.");
+    console.error(`${MODULE_ID} | Token transform failed`, error);
+    ui.notifications.error(error.message ?? "Token transform failed.");
   }
 }
 
@@ -281,13 +185,13 @@ async function swapToReplacementForm(tokenDoc) {
   const originalActor = getTokenWorldBaseActor(tokenDoc);
 
   if (!originalActor) {
-    throw new Error("This token does not have a world Actor base. It cannot be used as the original form.");
+    throw new Error("This token does not have a world Actor base.");
   }
 
   const replacementUuid = originalActor.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID);
 
   if (!replacementUuid) {
-    throw new Error(`${originalActor.name} does not have a replacement Actor UUID set.`);
+    throw new Error(`${originalActor.name} does not have a transform Actor UUID set.`);
   }
 
   const replacementActor = await resolveActorUuid(replacementUuid);
@@ -303,52 +207,41 @@ async function swapToReplacementForm(tokenDoc) {
     originalActorLink: isTokenLinked(tokenDoc),
     originalDelta: duplicateData(tokenSource.delta ?? {}),
     originalAppearance: pickTokenAppearance(tokenSource),
-    replacementActorUuid: replacementActor.uuid,
-    replacementWasWorldActor: isWorldActor(replacementActor)
+    replacementActorUuid: replacementActor.uuid
   };
 
   const replacementAppearance = await getActorPrototypeAppearance(replacementActor);
   const replacementBaseEffects = getBaseFormEffectData(replacementActor);
 
-  let update;
-
-  if (isWorldActor(replacementActor)) {
-    update = {
-      actorId: replacementActor.id,
-      actorLink: false,
-      delta: buildDeltaAgainstWorldActor(
-        replacementActor,
-        currentDamage,
-        replacementBaseEffects,
-        carriedEffects
-      ),
-      ...replacementAppearance,
-      [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: state
-    };
-  } else {
-    update = {
-      /*
-       * Scene tokens cannot directly use a compendium Actor id as actorId.
-       * So for compendium forms, keep the original world actorId and place the
-       * replacement Actor's full profile into the synthetic ActorDelta.
-       */
-      actorId: originalActor.id,
-      actorLink: false,
-      delta: buildFullActorProfileDelta(
-        replacementActor,
-        currentDamage,
-        replacementBaseEffects,
-        carriedEffects
-      ),
-      ...replacementAppearance,
-      [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: state
-    };
-  }
+  const update = isWorldActor(replacementActor)
+    ? {
+        actorId: replacementActor.id,
+        actorLink: false,
+        delta: buildDeltaAgainstWorldActor(
+          replacementActor,
+          currentDamage,
+          replacementBaseEffects,
+          carriedEffects
+        ),
+        ...replacementAppearance,
+        [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: state
+      }
+    : {
+        actorId: originalActor.id,
+        actorLink: false,
+        delta: buildFullActorProfileDelta(
+          replacementActor,
+          currentDamage,
+          replacementBaseEffects,
+          carriedEffects
+        ),
+        ...replacementAppearance,
+        [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: state
+      };
 
   await tokenDoc.update(update);
 
-  const damageLabel = Number.isFinite(currentDamage) ? ` Damage carried: ${currentDamage}.` : "";
-  ui.notifications.info(`${tokenDoc.name} swapped to ${replacementActor.name}.${damageLabel}`);
+  ui.notifications.info(`${tokenDoc.name} transformed into ${replacementActor.name}.`);
 }
 
 async function restoreOriginalForm(tokenDoc, state) {
@@ -399,12 +292,11 @@ async function restoreOriginalForm(tokenDoc, state) {
     });
   }
 
-  const damageLabel = Number.isFinite(currentDamage) ? ` Damage carried: ${currentDamage}.` : "";
-  ui.notifications.info(`${tokenDoc.name} restored to ${originalActor.name}.${damageLabel}`);
+  ui.notifications.info(`${tokenDoc.name} restored to ${originalActor.name}.`);
 }
 
 /* ------------------------------------------------------------------------- */
-/* ActorDelta builders                                                        */
+/* Delta builders                                                             */
 /* ------------------------------------------------------------------------- */
 
 function buildDeltaAgainstWorldActor(actor, damage, baseEffects, carriedEffects) {
@@ -466,7 +358,7 @@ function scrubActorDelta(delta) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* ACKS damage and active effects                                             */
+/* ACKS HP and effects                                                        */
 /* ------------------------------------------------------------------------- */
 
 function getAcksDamageFromActor(actor) {
@@ -498,10 +390,6 @@ function applyAcksDamageToData(data, fallbackActor, damage) {
 }
 
 async function applyDamageAndEffectsToWorldActor(actor, damage, effects) {
-  if (!canUpdateDocument(actor)) {
-    throw new Error(`You do not have permission to update ${actor.name}.`);
-  }
-
   const update = {};
 
   if (Number.isFinite(damage)) {
@@ -597,7 +485,7 @@ function pickTokenAppearance(source) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Actor and token helpers                                                    */
+/* Actor/token helpers                                                        */
 /* ------------------------------------------------------------------------- */
 
 function tokenHasSwapAvailable(tokenDoc) {
@@ -703,16 +591,6 @@ function isTokenLinked(tokenDoc) {
   return tokenDoc?.actorLink === true || tokenDoc?.isLinked === true;
 }
 
-function getHudToken(hud) {
-  return (
-    hud?.object ??
-    hud?.token ??
-    hud?.document?.object ??
-    canvas?.tokens?.controlled?.[0] ??
-    null
-  );
-}
-
 function canUpdateDocument(document) {
   if (!document) return false;
   if (game.user?.isGM) return true;
@@ -721,23 +599,19 @@ function canUpdateDocument(document) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* UI helpers                                                                 */
+/* UI/data helpers                                                            */
 /* ------------------------------------------------------------------------- */
 
 async function textInputDialog({ title, label, value = "", placeholder = "" }) {
-  const escapedLabel = escapeHtml(label);
-  const escapedValue = escapeHtml(value);
-  const escapedPlaceholder = escapeHtml(placeholder);
-
   const content = `
     <form>
       <div class="form-group stacked">
-        <label>${escapedLabel}</label>
+        <label>${escapeHtml(label)}</label>
         <input
           type="text"
           name="uuid"
-          value="${escapedValue}"
-          placeholder="${escapedPlaceholder}"
+          value="${escapeHtml(value)}"
+          placeholder="${escapeHtml(placeholder)}"
           style="width: 100%;"
         />
         <p class="notes">
@@ -747,51 +621,50 @@ async function textInputDialog({ title, label, value = "", placeholder = "" }) {
     </form>
   `;
 
-  if (globalThis.Dialog?.prompt) {
-    return Dialog.prompt({
-      title,
-      content,
-      label: "Save",
-      rejectClose: false,
-      callback: html => {
-        const root = getRenderedElement(html);
-        return root?.querySelector?.('input[name="uuid"]')?.value?.trim() ?? "";
-      }
-    });
-  }
-
-  const result = window.prompt(label, value);
-  return result === null ? null : result.trim();
+  return Dialog.prompt({
+    title,
+    content,
+    label: "Save",
+    rejectClose: false,
+    callback: html => {
+      const root = getElement(html);
+      return root?.querySelector?.('input[name="uuid"]')?.value?.trim() ?? "";
+    }
+  });
 }
 
-function getRenderedElement(htmlOrElement) {
-  if (!htmlOrElement) return null;
-
-  if (htmlOrElement instanceof HTMLElement) return htmlOrElement;
-
-  if (htmlOrElement.jquery) {
-    return htmlOrElement[0] ?? null;
-  }
-
-  if (htmlOrElement[0] instanceof HTMLElement) {
-    return htmlOrElement[0];
-  }
-
-  return null;
-}
-
-function injectHudStyles() {
+function injectStyles() {
   if (document.getElementById(`${MODULE_ID}-styles`)) return;
 
   const style = document.createElement("style");
   style.id = `${MODULE_ID}-styles`;
   style.textContent = `
-    .${CSS.HUD_BUTTON} {
+    .token-transformer-sheet-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      height: 28px;
+      margin-left: 4px;
+      padding: 0 8px;
+      border: 1px solid var(--color-border-light-primary, #777);
+      border-radius: 4px;
+      background: var(--color-bg-option, rgba(0, 0, 0, 0.15));
+      color: var(--color-text-light-highlight, inherit);
+      cursor: pointer;
+      pointer-events: auto;
+      font-size: 12px;
+    }
+
+    .token-transformer-sheet-button:hover {
+      text-shadow: 0 0 6px var(--color-shadow-primary, red);
+    }
+
+    .token-transformer-hud-button {
       cursor: pointer;
       pointer-events: auto;
     }
 
-    .${CSS.HUD_BUTTON} i {
+    .token-transformer-hud-button i {
       pointer-events: none;
     }
   `;
@@ -799,9 +672,14 @@ function injectHudStyles() {
   document.head.appendChild(style);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Data helpers                                                               */
-/* ------------------------------------------------------------------------- */
+function getElement(value) {
+  if (!value) return null;
+  if (value instanceof HTMLElement) return value;
+  if (value instanceof DocumentFragment) return value;
+  if (value.jquery) return value[0] ?? null;
+  if (value[0] instanceof HTMLElement) return value[0];
+  return null;
+}
 
 function getProperty(object, path) {
   if (foundry?.utils?.getProperty) return foundry.utils.getProperty(object, path);
