@@ -26,7 +26,7 @@
  * - Transfers active effects both ways.
  */
 
-const token-transformer = "acks-token-forms";
+const MODULE_ID = "token-transformer";
 
 const ACKS_SYSTEM_ID = "acks";
 
@@ -37,13 +37,13 @@ const FLAGS = {
 };
 
 const ACTIONS = {
-  CONFIGURE_REPLACEMENT: `${token-transformer}.configureReplacement`,
-  TOGGLE_TOKEN_FORM: `${token-transformer}.toggleTokenForm`
+  CONFIGURE_REPLACEMENT: `${MODULE_ID}.configureReplacement`,
+  TOGGLE_TOKEN_FORM: `${MODULE_ID}.toggleTokenForm`
 };
 
 const CSS = {
-  SHEET_BUTTON: `${token-transformer}-sheet-button`,
-  HUD_BUTTON: `${token-transformer}-hud-button`
+  SHEET_BUTTON: `${MODULE_ID}-sheet-button`,
+  HUD_BUTTON: `${MODULE_ID}-hud-button`
 };
 
 const HP_MAX_PATH = "system.hp.max";
@@ -85,7 +85,7 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
   if (game.system?.id !== ACKS_SYSTEM_ID) {
     console.warn(
-      `${token-transformer} | This module was written for ACKS Core. Current system is "${game.system?.id}".`
+      `${MODULE_ID} | This module was written for ACKS Core. Current system is "${game.system?.id}".`
     );
   }
 });
@@ -139,7 +139,7 @@ function addV2ActorSheetControl(app, controls) {
 function patchApplicationV2ActionHandler() {
   const ApplicationV2 = foundry?.applications?.api?.ApplicationV2;
   if (!ApplicationV2?.prototype?._onClickAction) return;
-  if (ApplicationV2.prototype[`_${token-transformer}Patched`]) return;
+  if (ApplicationV2.prototype[`_${MODULE_ID}Patched`]) return;
 
   const original = ApplicationV2.prototype._onClickAction;
 
@@ -158,7 +158,7 @@ function patchApplicationV2ActionHandler() {
     return original.call(this, event, target);
   };
 
-  ApplicationV2.prototype[`_${token-transformer}Patched`] = true;
+  ApplicationV2.prototype[`_${MODULE_ID}Patched`] = true;
 }
 
 async function configureReplacementActor(app) {
@@ -174,7 +174,7 @@ async function configureReplacementActor(app) {
     return;
   }
 
-  const currentUuid = actor.getFlag(token-transformer, FLAGS.REPLACEMENT_UUID) ?? "";
+  const currentUuid = actor.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID) ?? "";
 
   const uuid = await textInputDialog({
     title: "Set Token Form Actor UUID",
@@ -186,7 +186,7 @@ async function configureReplacementActor(app) {
   if (uuid === null) return;
 
   if (!uuid) {
-    await actor.unsetFlag(token-transformer, FLAGS.REPLACEMENT_UUID);
+    await actor.unsetFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID);
     ui.notifications.info(`${actor.name}: replacement Actor UUID cleared.`);
     return;
   }
@@ -200,7 +200,7 @@ async function configureReplacementActor(app) {
     return;
   }
 
-  await actor.setFlag(token-transformer, FLAGS.REPLACEMENT_UUID, replacementActor.uuid);
+  await actor.setFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID, replacementActor.uuid);
   ui.notifications.info(`${actor.name}: replacement Actor set to ${replacementActor.name}.`);
 }
 
@@ -268,7 +268,7 @@ async function toggleTokenForm(tokenDoc) {
 
     canvas?.hud?.token?.clear?.();
   } catch (error) {
-    console.error(`${token-transformer} | Token form toggle failed`, error);
+    console.error(`${MODULE_ID} | Token form toggle failed`, error);
     ui.notifications.error(error.message ?? "Token form toggle failed.");
   }
 }
@@ -284,7 +284,7 @@ async function swapToReplacementForm(tokenDoc) {
     throw new Error("This token does not have a world Actor base. It cannot be used as the original form.");
   }
 
-  const replacementUuid = originalActor.getFlag(token-transformer, FLAGS.REPLACEMENT_UUID);
+  const replacementUuid = originalActor.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID);
 
   if (!replacementUuid) {
     throw new Error(`${originalActor.name} does not have a replacement Actor UUID set.`);
@@ -323,7 +323,7 @@ async function swapToReplacementForm(tokenDoc) {
         carriedEffects
       ),
       ...replacementAppearance,
-      [`flags.${token-transformer}.${FLAGS.SWAP_STATE}`]: state
+      [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: state
     };
   } else {
     update = {
@@ -341,7 +341,7 @@ async function swapToReplacementForm(tokenDoc) {
         carriedEffects
       ),
       ...replacementAppearance,
-      [`flags.${token-transformer}.${FLAGS.SWAP_STATE}`]: state
+      [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: state
     };
   }
 
@@ -374,7 +374,7 @@ async function restoreOriginalForm(tokenDoc, state) {
       actorLink: true,
       delta: {},
       ...appearance,
-      [`flags.${token-transformer}.${FLAGS.SWAP_STATE}`]: {
+      [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: {
         ...state,
         isSwapped: false
       }
@@ -392,7 +392,7 @@ async function restoreOriginalForm(tokenDoc, state) {
       actorLink: false,
       delta: restoredDelta,
       ...appearance,
-      [`flags.${token-transformer}.${FLAGS.SWAP_STATE}`]: {
+      [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: {
         ...state,
         isSwapped: false
       }
@@ -433,7 +433,7 @@ function buildFullActorProfileDelta(actor, damage, baseEffects, carriedEffects) 
     effects: mergeEffectData(baseEffects, carriedEffects)
   };
 
-  if (delta.flags?.[token-transformer]) delete delta.flags[token-transformer];
+  if (delta.flags?.[MODULE_ID]) delete delta.flags[MODULE_ID];
 
   applyAcksDamageToData(delta, actor, damage);
 
@@ -525,8 +525,8 @@ function getBaseFormEffectData(actor) {
   return Array.from(actor.effects).map(effect => {
     const data = scrubEffectData(effect.toObject());
     data.flags ??= {};
-    data.flags[token-transformer] ??= {};
-    data.flags[token-transformer][FLAGS.FORM_BASE_EFFECT] = true;
+    data.flags[MODULE_ID] ??= {};
+    data.flags[MODULE_ID][FLAGS.FORM_BASE_EFFECT] = true;
     return data;
   });
 }
@@ -537,7 +537,7 @@ function getCarriedEffectData(actor) {
   return Array.from(actor.effects)
     .map(effect => scrubEffectData(effect.toObject()))
     .filter(effectData => {
-      return effectData?.flags?.[token-transformer]?.[FLAGS.FORM_BASE_EFFECT] !== true;
+      return effectData?.flags?.[MODULE_ID]?.[FLAGS.FORM_BASE_EFFECT] !== true;
     });
 }
 
@@ -607,11 +607,11 @@ function tokenHasSwapAvailable(tokenDoc) {
 
   const baseActor = getTokenWorldBaseActor(tokenDoc);
 
-  return Boolean(baseActor?.getFlag?.(token-transformer, FLAGS.REPLACEMENT_UUID));
+  return Boolean(baseActor?.getFlag?.(MODULE_ID, FLAGS.REPLACEMENT_UUID));
 }
 
 function getSwapState(tokenDoc) {
-  return tokenDoc.getFlag(token-transformer, FLAGS.SWAP_STATE) ?? {};
+  return tokenDoc.getFlag(MODULE_ID, FLAGS.SWAP_STATE) ?? {};
 }
 
 function getTokenWorldBaseActor(tokenDoc) {
@@ -781,10 +781,10 @@ function getRenderedElement(htmlOrElement) {
 }
 
 function injectHudStyles() {
-  if (document.getElementById(`${token-transformer}-styles`)) return;
+  if (document.getElementById(`${MODULE_ID}-styles`)) return;
 
   const style = document.createElement("style");
-  style.id = `${token-transformer}-styles`;
+  style.id = `${MODULE_ID}-styles`;
   style.textContent = `
     .${CSS.HUD_BUTTON} {
       cursor: pointer;
