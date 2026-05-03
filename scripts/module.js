@@ -55,7 +55,7 @@ Hooks.on("renderACKSActorSheetV2", injectActorSheetButton);
 Hooks.on("renderACKSCharacterSheetV2", injectActorSheetButton);
 Hooks.on("renderACKSMonsterSheetV2", injectActorSheetButton);
 
-Hooks.on("renderTokenHUD", injectTokenHudButton);
+Hooks.on("renderTokenHUD", injectTokenHudButtons);
 Hooks.on("renderActorDirectory", hideHiddenCacheFromActorDirectory);
 
 Hooks.on("deleteToken", () => {
@@ -136,7 +136,7 @@ async function openGlobalDefaultsDialog() {
   const content = `
     <form class="token-transformer-settings-form">
       <p class="notes">
-        These are global defaults. Actor-specific settings override these.
+        These are global defaults. Actor or token-specific settings override these.
         ACKS HP damage is always carried.
       </p>
 
@@ -200,7 +200,7 @@ async function openGlobalDefaultsDialog() {
 }
 
 /* ------------------------------------------------------------------------- */
-/* ACTOR SETTINGS                                                             */
+/* PER-ACTOR / PER-TOKEN SETTINGS                                             */
 /* ------------------------------------------------------------------------- */
 
 function getResolvedTransferSettings(tokenDoc = null, actor = null) {
@@ -288,13 +288,16 @@ function injectActorSheetButton(app, element) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "token-transformer-sheet-button";
-  button.title = "Configure Token Transformer for this Actor";
+  button.title = "Configure Token Transformer for this Actor or Token";
   button.innerHTML = `<i class="fa-solid fa-people-arrows"></i>`;
 
   button.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
-    configureActorTransformer(actor);
+
+    const tokenDoc = getSheetTokenDocument(app);
+    if (tokenDoc && !tokenDoc.actorLink) configureTokenTransformer(tokenDoc);
+    else configureActorTransformer(actor);
   });
 
   const headerControls =
@@ -346,7 +349,7 @@ async function configureActorTransformer(actor) {
       <hr>
 
       <p class="notes">
-        These settings apply to this Actor and its prototype token.
+        These settings apply to this Actor and its prototype token. Token-specific settings override them.
       </p>
 
       ${transferSettingsFields(settings)}
@@ -407,11 +410,84 @@ async function configureActorTransformer(actor) {
   });
 }
 
+async function configureTokenTransformer(tokenDoc) {
+  const currentUuid = tokenDoc.getFlag(MODULE_ID, FLAGS.REPLACEMENT_UUID) ?? "";
+  const inheritedUuid = getReplacementUuidForToken(tokenDoc) ?? "";
+  const settings = getResolvedTransferSettings(tokenDoc);
+
+  const content = `
+    <form class="token-transformer-settings-form">
+      <div class="form-group stacked">
+        <label>Token Replacement Actor UUID Override</label>
+        <input
+          type="text"
+          name="uuid"
+          value="${escapeHtml(currentUuid)}"
+          placeholder="${escapeHtml(inheritedUuid || "Actor.xxxxx or Compendium.package.pack.Actor.xxxxx")}"
+          style="width: 100%;"
+          autofocus
+        />
+        <p class="notes">
+          Leave blank to inherit the Actor/prototype/global UUID behaviour.
+          Current inherited UUID: ${escapeHtml(inheritedUuid || "none")}
+        </p>
+      </div>
+
+      <hr>
+
+      <p class="notes">
+        These settings apply only to this token and override Actor/global defaults.
+      </p>
+
+      ${transferSettingsFields(settings)}
+    </form>
+  `;
+
+  await dialogV2({
+    title: `Token Transformer: ${tokenDoc.name}`,
+    content,
+    buttons: [
+      {
+        action: "save",
+        label: "Save",
+        icon: "fa-solid fa-save",
+        default: true,
+        callback: async (_event, button) => {
+          const form = button.form;
+          const uuid = form.elements.uuid?.value?.trim() ?? "";
+          const transferSettings = normalizeTransferSettingsFromForm(form);
+
+          const update = {
+            [`flags.${MODULE_ID}.${FLAGS.TRANSFER_SETTINGS}`]: transferSettings,
+            [`flags.${MODULE_ID}.${FLAGS.CACHE_VISIBLE}`]: transferSettings.cacheVisible
+          };
+
+          if (uuid) {
+            const replacementActor = await resolveActorUuid(uuid);
+            update[`flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`] = replacementActor.uuid;
+          } else {
+            update[`flags.${MODULE_ID}.${FLAGS.REPLACEMENT_UUID}`] = null;
+          }
+
+          await tokenDoc.update(update);
+          ui.notifications.info(`${tokenDoc.name}: token-specific Token Transformer settings saved.`);
+          return true;
+        }
+      },
+      {
+        action: "cancel",
+        label: "Cancel",
+        icon: "fa-solid fa-xmark"
+      }
+    ]
+  });
+}
+
 /* ------------------------------------------------------------------------- */
-/* TOKEN HUD TRANSFORM BUTTON ONLY                                            */
+/* TOKEN HUD BUTTON                                                           */
 /* ------------------------------------------------------------------------- */
 
-function injectTokenHudButton(hud, element) {
+function injectTokenHudButtons(hud, element) {
   const tokenDoc = hud.object?.document;
   if (!tokenDoc || !canUpdateDocument(tokenDoc)) return;
   if (!tokenHasSwapAvailable(tokenDoc)) return;
@@ -895,6 +971,16 @@ function getSheetActor(app) {
   if (isActorDocument(doc)) return doc;
   if (isActorDocument(app?.object?.actor)) return app.object.actor;
   return null;
+}
+
+function getSheetTokenDocument(app) {
+  return (
+    app?.document?.token ??
+    app?.actor?.token ??
+    app?.object?.token ??
+    app?.object?.actor?.token ??
+    null
+  );
 }
 
 async function resolveActorUuid(uuid) {
