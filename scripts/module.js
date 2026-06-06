@@ -1226,6 +1226,13 @@ function injectStyles() {
       pointer-events: none;
     }
 
+    .token-transformer-settings-form {
+      max-height: min(70vh, 720px);
+      overflow-y: auto;
+      padding-right: 6px;
+      scrollbar-gutter: stable;
+    }
+
     .token-transformer-settings-form .form-group {
       align-items: center;
     }
