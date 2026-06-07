@@ -136,11 +136,18 @@ async function openGlobalDefaultsDialog() {
   const content = `
     <form class="token-transformer-settings-form">
       <p class="notes">
-        These are the default choices for what the replacement Actor contributes during a transform.
-        Actor or token-specific settings override these defaults. ACKS HP damage is always carried.
+        These are global defaults. Actor or token-specific settings override these.
+        ACKS HP damage is always carried.
       </p>
 
-      ${transferSettingsFields(settings)}
+      ${settingCheckbox("transferNameImage", "Transfer name and portrait image", settings.transferNameImage)}
+      ${settingCheckbox("transferSystem", "Transfer full ACKS system data", settings.transferSystem)}
+      ${settingCheckbox("transferItems", "Transfer all items", settings.transferItems)}
+      ${settingCheckbox("transferAbilityItems", "Transfer ability items", settings.transferAbilityItems)}
+      ${settingCheckbox("transferEffects", "Transfer active effects from UUID Actor", settings.transferEffects)}
+      ${settingCheckbox("transferTokenAppearance", "Transfer prototype token appearance", settings.transferTokenAppearance)}
+      ${settingCheckbox("carryActiveEffects", "Carry current token active effects across forms", settings.carryActiveEffects)}
+      ${settingCheckbox("cacheVisible", "Show transformed cache actor in Actor Directory", settings.cacheVisible)}
 
       <hr>
 
@@ -244,98 +251,25 @@ function normalizeTransferSettingsFromForm(form) {
   };
 }
 
-function settingCheckbox(name, label, checked, hint = "") {
+function settingCheckbox(name, label, checked) {
   return `
-    <div class="form-group token-transformer-setting-row">
-      <label>
-        <span>${escapeHtml(label)}</span>
-        ${hint ? `<p class="notes">${escapeHtml(hint)}</p>` : ""}
-      </label>
+    <div class="form-group">
+      <label>${escapeHtml(label)}</label>
       <input type="checkbox" name="${name}" ${checked ? "checked" : ""}>
     </div>
   `;
 }
 
-function settingSection(title, description, fields) {
-  return `
-    <fieldset class="token-transformer-settings-section">
-      <legend>${escapeHtml(title)}</legend>
-      ${description ? `<p class="notes">${escapeHtml(description)}</p>` : ""}
-      ${fields}
-    </fieldset>
-  `;
-}
-
 function transferSettingsFields(settings) {
   return `
-    ${settingSection(
-      "Replacement Actor data",
-      "These options decide which data is copied from the configured replacement Actor into the temporary transform Actor.",
-      `
-        ${settingCheckbox(
-          "transferNameImage",
-          "Name and portrait image",
-          settings.transferNameImage,
-          "Use the replacement Actor's name and portrait. Turn this off to keep a generic transformed name."
-        )}
-        ${settingCheckbox(
-          "transferSystem",
-          "ACKS system data",
-          settings.transferSystem,
-          "Copy stats and other system fields from the replacement Actor. Current HP damage is still preserved separately."
-        )}
-        ${settingCheckbox(
-          "transferItems",
-          "All items",
-          settings.transferItems,
-          "Copy every item from the replacement Actor. If this is on, the ability-only option below does not limit the item list."
-        )}
-        ${settingCheckbox(
-          "transferAbilityItems",
-          "Ability items only",
-          settings.transferAbilityItems,
-          "When All items is off, copy only replacement Actor items whose type is ability. Turn both item options off to copy no items."
-        )}
-        ${settingCheckbox(
-          "transferEffects",
-          "Replacement Actor active effects",
-          settings.transferEffects,
-          "Copy active effects that are already on the replacement Actor. This is separate from carrying the current token's effects."
-        )}
-        ${settingCheckbox(
-          "transferTokenAppearance",
-          "Prototype token appearance",
-          settings.transferTokenAppearance,
-          "Use the replacement Actor's prototype token settings such as token art, size, bars, sight, and light."
-        )}
-      `
-    )}
-
-    ${settingSection(
-      "Current token data",
-      "These options control what stays with the original token as it changes form.",
-      `
-        ${settingCheckbox(
-          "carryActiveEffects",
-          "Carry current active effects",
-          settings.carryActiveEffects,
-          "Keep the token's current active effects across transform and restore. ACKS HP damage is always carried."
-        )}
-      `
-    )}
-
-    ${settingSection(
-      "Cache visibility",
-      "Token Transformer creates temporary world Actors for transformed tokens. This only changes whether those cache Actors are visible in the Actor Directory.",
-      `
-        ${settingCheckbox(
-          "cacheVisible",
-          "Show cached transform Actors",
-          settings.cacheVisible,
-          "Leave this off to hide the generated cache Actors from the Actor Directory. Tokens can still use hidden cache Actors."
-        )}
-      `
-    )}
+    ${settingCheckbox("transferNameImage", "Transfer name and portrait image", settings.transferNameImage)}
+    ${settingCheckbox("transferSystem", "Transfer full ACKS system data", settings.transferSystem)}
+    ${settingCheckbox("transferItems", "Transfer all items", settings.transferItems)}
+    ${settingCheckbox("transferAbilityItems", "Transfer ability items", settings.transferAbilityItems)}
+    ${settingCheckbox("transferEffects", "Transfer active effects from UUID Actor", settings.transferEffects)}
+    ${settingCheckbox("transferTokenAppearance", "Transfer prototype token appearance", settings.transferTokenAppearance)}
+    ${settingCheckbox("carryActiveEffects", "Carry current token active effects across forms", settings.carryActiveEffects)}
+    ${settingCheckbox("cacheVisible", "Show transformed cache actor in Actor Directory", settings.cacheVisible)}
   `;
 }
 
@@ -579,16 +513,6 @@ function injectTokenHudButtons(hud, element) {
   parent.appendChild(button);
 }
 
-
-function closeTokenHud() {
-  const tokenHud = canvas?.hud?.token;
-  if (!tokenHud) return null;
-
-  if (typeof tokenHud.close === "function") return tokenHud.close();
-  if (typeof tokenHud.clear === "function") return tokenHud.clear();
-  return null;
-}
-
 async function toggleTokenForm(tokenDoc) {
   try {
     const state = getSwapState(tokenDoc);
@@ -598,7 +522,7 @@ async function toggleTokenForm(tokenDoc) {
 
     if (game.user.isGM) await cleanCache();
 
-    await closeTokenHud();
+    canvas?.hud?.token?.clear?.();
   } catch (error) {
     console.error(`${MODULE_ID} | Token transform failed`, error);
     ui.notifications.error(error.message ?? "Token transform failed.");
@@ -669,10 +593,7 @@ async function restoreOriginalForm(tokenDoc, state) {
     await tokenDoc.update({
       actorId: originalActor.id,
       actorLink: true,
-      delta: createActorDeltaData(null, {
-        type: originalActor.type,
-        system: getActorSystemData(originalActor)
-      }),
+      delta: {},
       ...appearance,
       [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: { ...state, isSwapped: false }
     });
@@ -742,8 +663,6 @@ function buildMaterializedActorData(sourceData, sourceUuid, settings, folderId) 
   delete data._id;
   delete data.ownership;
   delete data.sort;
-
-  sanitizeAcksSystemData(data.system);
 
   if (folderId) data.folder = folderId;
 
@@ -897,12 +816,11 @@ function hideHiddenCacheFromActorDirectory(_app, html) {
 /* ------------------------------------------------------------------------- */
 
 function buildTransformDelta(actor, damage, carriedEffects, settings) {
-  const delta = createActorDeltaData({
+  const delta = {
     type: actor.type,
+    system: {},
     effects: []
-  }, {
-    system: getActorSystemData(actor)
-  });
+  };
 
   applyAcksDamageToData(delta, actor, damage);
 
@@ -917,67 +835,18 @@ function buildTransformDelta(actor, damage, carriedEffects, settings) {
 }
 
 function buildRestoredOriginalDelta(originalActor, originalDelta, damage, carriedEffects) {
-  const delta = createActorDeltaData(originalDelta, {
-    type: originalActor.type,
-    system: getActorSystemData(originalActor)
-  });
+  const delta = duplicateData(originalDelta ?? {});
+  delta.type ??= originalActor.type;
+  delta.flags ??= {};
+  delta.system ??= {};
   delta.effects = duplicateData(carriedEffects ?? []);
   applyAcksDamageToData(delta, originalActor, damage);
   return scrubActorDelta(delta);
 }
 
-function createActorDeltaData(delta = {}, defaults = {}) {
-  const clean = duplicateData(delta ?? {});
-
-  clean._id ??= null;
-  if (clean.type === undefined && defaults.type !== undefined) clean.type = defaults.type;
-  clean.system = mergeData(defaults.system ?? {}, clean.system ?? {});
-  sanitizeAcksSystemData(clean.system);
-  clean.items ??= [];
-  clean.effects ??= [];
-  clean.flags ??= {};
-
-  return clean;
-}
-
-function getActorSystemData(actor) {
-  return duplicateData(actor?.toObject?.().system ?? actor?.system ?? {});
-}
-
-function sanitizeAcksSystemData(systemData) {
-  coerceNumberField(systemData, "details.xp", 0);
-  coerceNumberField(systemData, HP_MAX_PATH.replace(/^system\./, ""), 0);
-  coerceNumberField(systemData, HP_VALUE_PATH.replace(/^system\./, ""), 0);
-}
-
-function coerceNumberField(data, path, fallback) {
-  const value = getProperty(data, path);
-  const number = Number(value);
-  setProperty(data, path, Number.isFinite(number) ? number : fallback);
-  return true;
-}
-
-function mergeData(base, override) {
-  const merged = duplicateData(base ?? {});
-  const source = duplicateData(override ?? {});
-
-  for (const [key, value] of Object.entries(source)) {
-    if (isPlainObject(value) && isPlainObject(merged[key])) {
-      merged[key] = mergeData(merged[key], value);
-    } else {
-      merged[key] = value;
-    }
-  }
-
-  return merged;
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function scrubActorDelta(delta) {
-  const clean = createActorDeltaData(delta);
+  const clean = duplicateData(delta ?? {});
+  delete clean._id;
   delete clean.folder;
   delete clean.sort;
   delete clean.ownership;
@@ -1230,34 +1099,8 @@ function injectStyles() {
       align-items: center;
     }
 
-    .token-transformer-settings-form .token-transformer-settings-section {
-      margin: 0 0 12px;
-      padding: 8px 10px 10px;
-      border: 1px solid var(--color-border-light-tertiary, #999);
-      border-radius: 4px;
-    }
-
-    .token-transformer-settings-form .token-transformer-settings-section legend {
-      padding: 0 4px;
-      font-weight: bold;
-    }
-
-    .token-transformer-settings-form .token-transformer-setting-row {
-      align-items: flex-start;
-      gap: 8px;
-    }
-
-    .token-transformer-settings-form .token-transformer-setting-row label {
-      flex: 1;
-    }
-
-    .token-transformer-settings-form .token-transformer-setting-row label .notes {
-      margin: 2px 0 0;
-    }
-
     .token-transformer-settings-form input[type="checkbox"] {
       flex: 0 0 20px;
-      margin-top: 2px;
     }
   `;
 
