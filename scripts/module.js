@@ -817,9 +817,14 @@ function hideHiddenCacheFromActorDirectory(_app, html) {
 
 function buildTransformDelta(actor, damage, carriedEffects, settings) {
   const delta = {
+    _id: actor.id,
+    name: actor.name,
     type: actor.type,
+    img: actor.img,
     system: {},
-    effects: []
+    items: [],
+    effects: [],
+    flags: {}
   };
 
   applyAcksDamageToData(delta, actor, damage);
@@ -836,9 +841,13 @@ function buildTransformDelta(actor, damage, carriedEffects, settings) {
 
 function buildRestoredOriginalDelta(originalActor, originalDelta, damage, carriedEffects) {
   const delta = duplicateData(originalDelta ?? {});
+  delta._id ??= originalActor.id;
+  delta.name ??= originalActor.name;
   delta.type ??= originalActor.type;
+  delta.img ??= originalActor.img;
   delta.flags ??= {};
   delta.system ??= {};
+  delta.items ??= [];
   delta.effects = duplicateData(carriedEffects ?? []);
   applyAcksDamageToData(delta, originalActor, damage);
   return scrubActorDelta(delta);
@@ -846,7 +855,6 @@ function buildRestoredOriginalDelta(originalActor, originalDelta, damage, carrie
 
 function scrubActorDelta(delta) {
   const clean = duplicateData(delta ?? {});
-  delete clean._id;
   delete clean.folder;
   delete clean.sort;
   delete clean.ownership;
