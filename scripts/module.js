@@ -522,7 +522,9 @@ async function toggleTokenForm(tokenDoc) {
 
     if (game.user.isGM) await cleanCache();
 
-    canvas?.hud?.token?.clear?.();
+    const tokenHud = canvas?.hud?.token;
+    if (typeof tokenHud?.close === "function") tokenHud.close();
+    else tokenHud?.clear?.();
   } catch (error) {
     console.error(`${MODULE_ID} | Token transform failed`, error);
     ui.notifications.error(error.message ?? "Token transform failed.");
