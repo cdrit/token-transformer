@@ -1158,57 +1158,29 @@ function canUpdateDocument(document) {
 
 async function dialogV2({ title, content, buttons }) {
   const DialogV2 = foundry?.applications?.api?.DialogV2;
-  const dialogClasses = ["token-transformer-dialog"];
 
   if (DialogV2?.wait) {
     return DialogV2.wait({
-      window: {
-        title,
-        minimizable: true,
-        resizable: true
-      },
-      position: {
-        width: 900,
-        height: Math.min(window.innerHeight - 80, 720)
-      },
-      classes: dialogClasses,
+      window: { title },
       content,
-      modal: false,
+      modal: true,
       buttons,
       rejectClose: false
     });
   }
 
-  return new Promise(resolve => {
-    const dialogButtons = Object.fromEntries(buttons.map((button, index) => {
-      const key = button.action ?? `button-${index}`;
+  const defaultButton = buttons.find(button => button.default) ?? buttons[0];
 
-      return [key, {
-        icon: button.icon ? `<i class="${button.icon}"></i>` : "",
-        label: button.label,
-        callback: async html => {
-          const root = getElement(html);
-          const fakeButton = { form: root?.querySelector("form") };
-          resolve(await button.callback?.(null, fakeButton));
-        }
-      }];
-    }));
-
-    const dialog = new Dialog({
-      title,
-      content,
-      buttons: dialogButtons,
-      default: buttons.find(button => button.default)?.action ?? buttons[0]?.action,
-      close: () => resolve(false)
-    }, {
-      classes: dialogClasses,
-      width: 900,
-      height: Math.min(window.innerHeight - 80, 720),
-      resizable: true,
-      minimizable: true
-    });
-
-    dialog.render(true);
+  return Dialog.prompt({
+    title,
+    content,
+    label: defaultButton.label,
+    rejectClose: false,
+    callback: async html => {
+      const root = getElement(html);
+      const fakeButton = { form: root?.querySelector("form") };
+      return defaultButton.callback?.(null, fakeButton);
+    }
   });
 }
 
@@ -1254,30 +1226,11 @@ function injectStyles() {
       pointer-events: none;
     }
 
-    .token-transformer-dialog {
-      min-width: min(900px, calc(100vw - 24px));
-      max-height: calc(100vh - 24px);
-    }
-
-    .token-transformer-dialog .window-content {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    .token-transformer-dialog .dialog-content {
-      flex: 1 1 auto;
-      min-height: 0;
-      overflow: hidden;
-    }
-
     .token-transformer-settings-form {
-      max-height: calc(100vh - 180px);
-      overflow-y: scroll;
-      padding-right: 10px;
+      max-height: min(70vh, 720px);
+      overflow-y: auto;
+      padding-right: 6px;
       scrollbar-gutter: stable;
-      scrollbar-width: thin;
     }
 
     .token-transformer-settings-form .form-group {
