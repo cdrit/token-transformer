@@ -593,7 +593,7 @@ async function restoreOriginalForm(tokenDoc, state) {
     await tokenDoc.update({
       actorId: originalActor.id,
       actorLink: true,
-      delta: {},
+      delta: buildRestoredOriginalDelta(originalActor, state.originalDelta, null, []),
       ...appearance,
       [`flags.${MODULE_ID}.${FLAGS.SWAP_STATE}`]: { ...state, isSwapped: false }
     });
@@ -837,7 +837,6 @@ function buildTransformDelta(actor, damage, carriedEffects, settings) {
 function buildRestoredOriginalDelta(originalActor, originalDelta, damage, carriedEffects) {
   const delta = duplicateData(originalDelta ?? {});
   delta.type ??= originalActor.type;
-  delta.flags ??= {};
   delta.system ??= {};
   delta.effects = duplicateData(carriedEffects ?? []);
   applyAcksDamageToData(delta, originalActor, damage);
@@ -846,11 +845,20 @@ function buildRestoredOriginalDelta(originalActor, originalDelta, damage, carrie
 
 function scrubActorDelta(delta) {
   const clean = duplicateData(delta ?? {});
-  delete clean._id;
   delete clean.folder;
   delete clean.sort;
   delete clean.ownership;
   delete clean.prototypeToken;
+  return ensureActorDeltaSchemaFields(clean);
+}
+
+function ensureActorDeltaSchemaFields(delta) {
+  const clean = duplicateData(delta ?? {});
+  clean._id ??= null;
+  clean.flags = isPlainObject(clean.flags) ? clean.flags : {};
+  clean.items = Array.isArray(clean.items) ? clean.items : [];
+  clean.effects = Array.isArray(clean.effects) ? clean.effects : [];
+  clean.system = isPlainObject(clean.system) ? clean.system : {};
   return clean;
 }
 
@@ -1147,6 +1155,10 @@ function duplicateData(data) {
   if (foundry?.utils?.duplicate) return foundry.utils.duplicate(data);
   if (globalThis.structuredClone) return structuredClone(data);
   return JSON.parse(JSON.stringify(data));
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function escapeHtml(value) {
