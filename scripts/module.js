@@ -1263,26 +1263,18 @@ function injectStyles() {
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden;
     }
 
     .token-transformer-dialog .dialog-content {
-      display: flex;
       flex: 1 1 auto;
-      flex-direction: column;
       min-height: 0;
       overflow: hidden;
     }
 
-    .token-transformer-dialog .dialog-content > .token-transformer-settings-form,
-    .token-transformer-dialog .window-content > .token-transformer-settings-form {
-      flex: 1 1 auto;
-    }
-
     .token-transformer-settings-form {
-      height: 100%;
-      min-height: 0;
-      overflow-y: auto;
-      box-sizing: border-box;
+      max-height: calc(100vh - 180px);
+      overflow-y: scroll;
       padding-right: 10px;
       scrollbar-gutter: stable;
       scrollbar-width: thin;
