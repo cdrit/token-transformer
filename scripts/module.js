@@ -817,9 +817,14 @@ function hideHiddenCacheFromActorDirectory(_app, html) {
 
 function buildTransformDelta(actor, damage, carriedEffects, settings) {
   const delta = {
+    _id: actor.id,
+    name: actor.name,
     type: actor.type,
+    img: actor.img,
     system: {},
-    effects: []
+    items: [],
+    effects: [],
+    flags: {}
   };
 
   applyAcksDamageToData(delta, actor, damage);
@@ -836,8 +841,13 @@ function buildTransformDelta(actor, damage, carriedEffects, settings) {
 
 function buildRestoredOriginalDelta(originalActor, originalDelta, damage, carriedEffects) {
   const delta = duplicateData(originalDelta ?? {});
+  delta._id ??= originalActor.id;
+  delta.name ??= originalActor.name;
   delta.type ??= originalActor.type;
+  delta.img ??= originalActor.img;
+  delta.flags ??= {};
   delta.system ??= {};
+  delta.items ??= [];
   delta.effects = duplicateData(carriedEffects ?? []);
   applyAcksDamageToData(delta, originalActor, damage);
   return scrubActorDelta(delta);
@@ -1035,30 +1045,45 @@ function canUpdateDocument(document) {
 
 async function dialogV2({ title, content, buttons }) {
   const DialogV2 = foundry?.applications?.api?.DialogV2;
+  const window = { title, resizable: true };
+  const position = { width: 620 };
 
-  if (DialogV2?.wait) {
-    return DialogV2.wait({
-      window: { title },
+  if (DialogV2) {
+    const dialog = new DialogV2({
+      window,
+      position,
       content,
-      modal: true,
+      modal: false,
       buttons,
       rejectClose: false
     });
+
+    return dialog.render({ force: true });
   }
 
   const defaultButton = buttons.find(button => button.default) ?? buttons[0];
 
-  return Dialog.prompt({
+  return new Dialog({
     title,
     content,
-    label: defaultButton.label,
-    rejectClose: false,
-    callback: async html => {
-      const root = getElement(html);
-      const fakeButton = { form: root?.querySelector("form") };
-      return defaultButton.callback?.(null, fakeButton);
-    }
-  });
+    buttons: Object.fromEntries(buttons.map(button => [
+      button.action,
+      {
+        label: button.label,
+        icon: button.icon,
+        callback: async html => {
+          const root = getElement(html);
+          const fakeButton = { form: root?.querySelector("form") };
+          return button.callback?.(null, fakeButton);
+        }
+      }
+    ])),
+    default: defaultButton.action,
+    close: () => null
+  }, {
+    width: position.width,
+    resizable: true
+  }).render(true);
 }
 
 function injectStyles() {
