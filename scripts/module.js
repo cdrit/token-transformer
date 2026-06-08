@@ -682,6 +682,10 @@ function buildMaterializedActorData(sourceData, sourceUuid, settings, folderId) 
     delete data.prototypeToken.flags[MODULE_ID][FLAGS.REPLACEMENT_UUID];
   }
 
+  if (data.type === "character" && isPlainObject(data.system)) {
+    delete data.system.xp;
+  }
+
   return data;
 }
 
