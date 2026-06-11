@@ -64,4 +64,4 @@ The cache is cleaned automatically by the GM client when Foundry is ready, when 
 
 ## Development note
 
-This module started as a small utility for ACKS token transformations and active-effect cleanup. Contributions and improvements are welcome.
+This module is entirely vibe-coded. Contributions and improvements from real coders are welcome.
