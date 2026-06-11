@@ -57,11 +57,6 @@ When a token transforms, the module creates or updates a cached world actor in a
 
 The cache is cleaned automatically by the GM client when Foundry is ready, when tokens are deleted, and when scenes are deleted. The global defaults dialog also includes a **Clear Cache** button that removes only unused cached actors; cached actors still referenced by scene tokens are kept.
 
-## Compatibility
-
-- Foundry VTT: minimum `14.0.0`, verified through `14.999`
-- System: `acks`
-
 ## Development note
 
 This module is entirely vibe-coded. Contributions and improvements from real coders are welcome.
